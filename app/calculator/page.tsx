@@ -17,6 +17,175 @@ interface CalculationResult {
   vat: number;
 }
 
+interface LeaseCalculationResult {
+  financedPrincipal: number;
+  monthlyPayment: number;
+  totalPayment: number;
+  totalInterest: number;
+  downPaymentAmount: number;
+}
+
+type LeaseTermMonths = 36 | 60 | 84;
+
+interface LeaseInputs {
+  totalVehicleValueLKR: number;
+  downPaymentPercent: number;
+  annualInterestRate: number;
+  leaseTermMonths: LeaseTermMonths;
+}
+
+interface LeaseEstimateParams {
+  vehiclePrice: number;
+  downPaymentAmount: number;
+  annualInterestRate: number;
+  leaseTermMonths: LeaseTermMonths;
+}
+
+interface LeaseFinanceSummary {
+  downPaymentAmount: number;
+  financedAmount: number;
+  results: LeaseCalculationResult | null;
+  validationMessage: string | null;
+}
+
+function calculateDownPaymentAmount(vehiclePrice: number, downPaymentPercent: number) {
+  return (vehiclePrice * downPaymentPercent) / 100;
+}
+
+function validateLeaseEstimate({
+  vehiclePrice,
+  downPaymentAmount,
+  annualInterestRate,
+  leaseTermMonths,
+}: LeaseEstimateParams) {
+  if (
+    !Number.isFinite(vehiclePrice) ||
+    !Number.isFinite(downPaymentAmount) ||
+    !Number.isFinite(annualInterestRate) ||
+    !Number.isFinite(leaseTermMonths) ||
+    downPaymentAmount < 0 ||
+    annualInterestRate < 0
+  ) {
+    return 'Enter valid numeric values to generate a finance estimate.';
+  }
+
+  if (vehiclePrice <= 0) {
+    return 'Enter the vehicle value in LKR to generate a finance estimate.';
+  }
+
+  if (downPaymentAmount > vehiclePrice) {
+    return 'Down payment cannot exceed the vehicle value.';
+  }
+
+  if (leaseTermMonths <= 0) {
+    return 'Select a valid lease term.';
+  }
+
+  return null;
+}
+
+function calculateLeaseEstimate({
+  vehiclePrice,
+  downPaymentAmount,
+  annualInterestRate,
+  leaseTermMonths,
+}: LeaseEstimateParams): LeaseCalculationResult | null {
+  const validationMessage = validateLeaseEstimate({
+    vehiclePrice,
+    downPaymentAmount,
+    annualInterestRate,
+    leaseTermMonths,
+  });
+
+  if (validationMessage) {
+    return null;
+  }
+
+  const financedPrincipal = vehiclePrice - downPaymentAmount;
+
+  if (financedPrincipal <= 0) {
+    return {
+      financedPrincipal: 0,
+      monthlyPayment: 0,
+      totalPayment: downPaymentAmount,
+      totalInterest: 0,
+      downPaymentAmount,
+    };
+  }
+
+  const monthlyRate = annualInterestRate / 100 / 12;
+
+  if (monthlyRate === 0) {
+    const monthlyPayment = financedPrincipal / leaseTermMonths;
+    const totalPayment = downPaymentAmount + financedPrincipal;
+
+    return {
+      financedPrincipal,
+      monthlyPayment,
+      totalPayment,
+      totalInterest: 0,
+      downPaymentAmount,
+    };
+  }
+
+  const growthFactor = Math.pow(1 + monthlyRate, leaseTermMonths);
+  const denominator = growthFactor - 1;
+
+  if (!Number.isFinite(growthFactor) || denominator === 0) {
+    return null;
+  }
+
+  const monthlyPayment =
+    financedPrincipal * ((monthlyRate * growthFactor) / denominator);
+  const totalOfInstallments = monthlyPayment * leaseTermMonths;
+  const totalPayment = downPaymentAmount + totalOfInstallments;
+  const totalInterest = totalOfInstallments - financedPrincipal;
+
+  if (
+    !Number.isFinite(monthlyPayment) ||
+    !Number.isFinite(totalPayment) ||
+    !Number.isFinite(totalInterest)
+  ) {
+    return null;
+  }
+
+  return {
+    financedPrincipal,
+    monthlyPayment,
+    totalPayment,
+    totalInterest,
+    downPaymentAmount,
+  };
+}
+
+function buildLeaseFinanceSummary(leaseInputs: LeaseInputs): LeaseFinanceSummary {
+  const downPaymentAmount = calculateDownPaymentAmount(
+    leaseInputs.totalVehicleValueLKR,
+    leaseInputs.downPaymentPercent,
+  );
+  const financedAmount = Math.max(0, leaseInputs.totalVehicleValueLKR - downPaymentAmount);
+  const validationMessage = validateLeaseEstimate({
+    vehiclePrice: leaseInputs.totalVehicleValueLKR,
+    downPaymentAmount,
+    annualInterestRate: leaseInputs.annualInterestRate,
+    leaseTermMonths: leaseInputs.leaseTermMonths,
+  });
+
+  return {
+    downPaymentAmount,
+    financedAmount,
+    results: validationMessage
+      ? null
+      : calculateLeaseEstimate({
+          vehiclePrice: leaseInputs.totalVehicleValueLKR,
+          downPaymentAmount,
+          annualInterestRate: leaseInputs.annualInterestRate,
+          leaseTermMonths: leaseInputs.leaseTermMonths,
+        }),
+    validationMessage,
+  };
+}
+
 export default function CalculatorPage() {
   const [activeTab, setActiveTab] = useState<'tax' | 'lease'>('tax');
   const [inputs, setInputs] = useState({
@@ -27,11 +196,11 @@ export default function CalculatorPage() {
     exchangeRate: 2.0,
     includeSSCL: false,
   });
-  const [leaseInputs, setLeaseInputs] = useState({
+  const [leaseInputs, setLeaseInputs] = useState<LeaseInputs>({
     totalVehicleValueLKR: 0,
     downPaymentPercent: 30,
     annualInterestRate: 13,
-    leaseTermMonths: 60 as 36 | 60 | 84,
+    leaseTermMonths: 60,
   });
   
   const [results, setResults] = useState<CalculationResult | null>(null);
@@ -84,8 +253,13 @@ export default function CalculatorPage() {
     }));
   };
 
-  const downPaymentAmount = (leaseInputs.totalVehicleValueLKR * leaseInputs.downPaymentPercent) / 100;
-  const totalLoanAmount = Math.max(0, leaseInputs.totalVehicleValueLKR - downPaymentAmount);
+  const leaseFinanceSummary = buildLeaseFinanceSummary(leaseInputs);
+  const {
+    downPaymentAmount,
+    financedAmount,
+    results: leaseResults,
+    validationMessage: leaseValidationMessage,
+  } = leaseFinanceSummary;
 
   const isKwBased = inputs.fuelType === "Electric" || inputs.fuelType === "E-SMART Hybrid";
 
@@ -383,7 +557,7 @@ export default function CalculatorPage() {
                         <button
                           key={term}
                           type="button"
-                          onClick={() => setLeaseInputs(prev => ({ ...prev, leaseTermMonths: term as 36 | 60 | 84 }))}
+                          onClick={() => setLeaseInputs(prev => ({ ...prev, leaseTermMonths: term as LeaseTermMonths }))}
                           className={`rounded-full border px-4 py-2 text-sm font-bold transition-colors ${
                             leaseInputs.leaseTermMonths === term
                               ? 'border-[#013667] text-[#013667] bg-white'
@@ -401,22 +575,69 @@ export default function CalculatorPage() {
 
             <section className="flex flex-col h-full bg-white lg:pl-12 lg:border-l border-gray-100">
               <div className="animate-in fade-in duration-300">
-                <div className="mb-8">
-                  <span className="text-sm font-bold text-gray-500 uppercase tracking-widest">Estimated Monthly Rental</span>
-                  <div className="text-6xl font-black text-[#013667] mt-2 tracking-tighter">
-                    Rs. 0
+                <div className="mb-8 rounded-2xl border border-gray-100 bg-white px-6 py-7 sm:px-8">
+                  <span className="text-xs font-bold uppercase tracking-[0.22em] text-gray-500">Estimated Monthly Rental</span>
+                  <div className="mt-3 text-5xl font-black tracking-[-0.04em] text-[#013667] sm:text-6xl">
+                    Rs. {leaseResults ? leaseResults.monthlyPayment.toLocaleString(undefined, { maximumFractionDigits: 0 }) : '0'}
                   </div>
+                  <p className="mt-3 max-w-md text-sm leading-7 text-gray-500">
+                    A reducing-balance estimate based on your selected vehicle value, down payment, interest rate, and lease term.
+                  </p>
                 </div>
 
-                <div className="grow space-y-3 mb-10">
-                  <h3 className="text-xs font-bold text-gray-400 uppercase tracking-widest mb-4 border-b border-gray-100 pb-2">Lease Breakdown</h3>
-                  <div className="grid grid-cols-2 gap-y-3 text-sm text-gray-600">
-                    <span>Down Payment Amount:</span>
-                    <span className="text-right font-mono">Rs. {downPaymentAmount.toLocaleString(undefined, { maximumFractionDigits: 0 })}</span>
-
-                    <span>Total Loan Amount:</span>
-                    <span className="text-right font-mono">Rs. {totalLoanAmount.toLocaleString(undefined, { maximumFractionDigits: 0 })}</span>
+                <div className="grow mb-10">
+                  <h3 className="text-xs font-bold text-gray-400 uppercase tracking-widest mb-4 border-b border-gray-100 pb-3">Lease Breakdown</h3>
+                  <div className="grid gap-3 sm:grid-cols-2">
+                    {[
+                      {
+                        label: 'Down Payment Amount',
+                        value: (leaseResults?.downPaymentAmount ?? downPaymentAmount).toLocaleString(undefined, {
+                          maximumFractionDigits: 0,
+                        }),
+                      },
+                      {
+                        label: 'Financed Amount',
+                        value: (leaseResults?.financedPrincipal ?? financedAmount).toLocaleString(undefined, {
+                          maximumFractionDigits: 0,
+                        }),
+                      },
+                      {
+                        label: 'Total Interest',
+                        value: (leaseResults?.totalInterest ?? 0).toLocaleString(undefined, {
+                          maximumFractionDigits: 0,
+                        }),
+                      },
+                      {
+                        label: 'Total Payable',
+                        value: (leaseResults?.totalPayment ?? 0).toLocaleString(undefined, {
+                          maximumFractionDigits: 0,
+                        }),
+                        emphasized: true,
+                      },
+                    ].map((item) => (
+                      <div
+                        key={item.label}
+                        className={`rounded-xl border px-4 py-4 ${
+                          item.emphasized ? 'border-[#013667]/15 bg-white' : 'border-gray-100 bg-white'
+                        }`}
+                      >
+                        <p className="text-[11px] font-bold uppercase tracking-[0.18em] text-gray-500">{item.label}</p>
+                        <p
+                          className={`mt-2 font-mono text-lg ${
+                            item.emphasized ? 'font-bold text-[#013667]' : 'font-semibold text-gray-700'
+                          }`}
+                        >
+                          Rs. {item.value}
+                        </p>
+                      </div>
+                    ))}
                   </div>
+
+                  {leaseValidationMessage && (
+                    <p className="mt-4 rounded-xl border border-[#a60000]/15 bg-white px-4 py-3 text-sm font-medium leading-6 text-[#a60000]">
+                      {leaseValidationMessage}
+                    </p>
+                  )}
                 </div>
 
                 <button
