@@ -1,6 +1,7 @@
 "use client";
 
 import React, { useState } from 'react';
+import { useSearchParams } from 'next/navigation';
 import { PieChart, Pie, Cell, ResponsiveContainer, Tooltip } from 'recharts';
 
 const BRAND_RED = "#a60000";
@@ -46,6 +47,31 @@ interface LeaseFinanceSummary {
   financedAmount: number;
   results: LeaseCalculationResult | null;
   validationMessage: string | null;
+}
+
+interface TaxCalculatorInputs {
+  cifJPY: number;
+  engineCC: number;
+  fuelType: string;
+  vehicleType: string;
+  ageYears: number;
+  exchangeRate: number;
+  includeSSCL: boolean;
+}
+
+function buildInitialTaxInputs(searchParams: ReturnType<typeof useSearchParams>): TaxCalculatorInputs {
+  const queryEngineCC = searchParams.get('engineCC');
+  const parsedEngineCC = queryEngineCC ? Number(queryEngineCC) : Number.NaN;
+
+  return {
+    cifJPY: 1500000,
+    engineCC: Number.isFinite(parsedEngineCC) && parsedEngineCC > 0 ? parsedEngineCC : 1000,
+    fuelType: searchParams.get('fuelType')?.trim() || 'Petrol',
+    vehicleType: searchParams.get('vehicleType')?.trim() || '',
+    ageYears: 1,
+    exchangeRate: 2.0,
+    includeSSCL: false,
+  };
 }
 
 function calculateDownPaymentAmount(vehiclePrice: number, downPaymentPercent: number) {
@@ -187,15 +213,9 @@ function buildLeaseFinanceSummary(leaseInputs: LeaseInputs): LeaseFinanceSummary
 }
 
 export default function CalculatorPage() {
+  const searchParams = useSearchParams();
   const [activeTab, setActiveTab] = useState<'tax' | 'lease'>('tax');
-  const [inputs, setInputs] = useState({
-    cifJPY: 1500000,
-    engineCC: 1000,
-    fuelType: 'Petrol',
-    ageYears: 1,
-    exchangeRate: 2.0,
-    includeSSCL: false,
-  });
+  const [inputs, setInputs] = useState<TaxCalculatorInputs>(() => buildInitialTaxInputs(searchParams));
   const [leaseInputs, setLeaseInputs] = useState<LeaseInputs>({
     totalVehicleValueLKR: 0,
     downPaymentPercent: 30,
@@ -213,23 +233,23 @@ export default function CalculatorPage() {
     const value = target.value;
 
     setInputs(prev => ({
-      ...prev,
-      [name]:
-        type === 'checkbox'
-          ? checked
-          : name === 'fuelType'
-            ? value
-            : Number(value),
+        ...prev,
+        [name]:
+          type === 'checkbox'
+            ? checked
+            : name === 'fuelType' || name === 'vehicleType'
+              ? value
+              : Number(value),
     }));
   };
 
-  const handleCalculate = async () => {
+  const calculateEstimate = async (calculatorInputs: TaxCalculatorInputs) => {
     setLoading(true);
     try {
       const response = await fetch('/api/calculate', {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify(inputs),
+        body: JSON.stringify(calculatorInputs),
       });
       const data = await response.json();
       setResults(data);
@@ -237,6 +257,10 @@ export default function CalculatorPage() {
       console.error("Failed to fetch calculation", error);
     }
     setLoading(false);
+  };
+
+  const handleCalculate = async () => {
+    await calculateEstimate(inputs);
   };
 
   const chartData = results ? [
@@ -335,6 +359,18 @@ export default function CalculatorPage() {
                     <option value="Electric">Electric</option>
                     <option value="E-SMART Hybrid">E-SMART Hybrid</option>
                   </select>
+                </div>
+
+                <div>
+                  <label className="block text-sm font-bold text-gray-700 mb-1">Vehicle Type (Optional)</label>
+                  <input
+                    type="text"
+                    name="vehicleType"
+                    value={inputs.vehicleType}
+                    onChange={handleInputChange}
+                    placeholder="e.g. Compact SUV"
+                    className="w-full p-4 border border-gray-200 rounded bg-white focus:outline-none focus:ring-2 focus:ring-[#013667] transition-all"
+                  />
                 </div>
 
                 <div className="grid grid-cols-2 gap-4">

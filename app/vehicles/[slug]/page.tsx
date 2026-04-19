@@ -1,6 +1,12 @@
 import Link from 'next/link';
 import { notFound } from 'next/navigation';
-import { vehicles, type VehicleCatalogItem, type VehicleGrade } from '@/lib/mockVehicles';
+import {
+  getCatalogVehicleDetail,
+  type CatalogChassisGroup,
+  type CatalogFeatureGroup,
+  type CatalogGrade,
+  type CatalogVehicleDetail,
+} from '@/lib/catalog/catalog-data';
 
 type VehiclePageProps = {
   params: Promise<{ slug: string }>;
@@ -17,11 +23,6 @@ type StatItem = {
   note: string;
 };
 
-type ComparisonRowDefinition = {
-  label: string;
-  getValue: (grade: VehicleGrade, vehicle: VehicleCatalogItem) => string;
-};
-
 type SnapshotItem = {
   label: string;
   value: string;
@@ -33,33 +34,25 @@ type MediaPlaceholder = {
   minHeightClass: string;
 };
 
-type VehicleNarrative = {
-  positioning: string;
-  overviewTitle: string;
-  overviewParagraphs: string[];
-  practicalityLead: string;
-  practicalityNarrative: string[];
-  practicalityItems: TextCardItem[];
-  performanceItems: StatItem[];
-  safetyItems: TextCardItem[];
-};
+type NormalizedVehicleGrade = CatalogGrade;
+type NormalizedChassisGroup = CatalogChassisGroup;
+type NormalizedVehicleDetail = CatalogVehicleDetail;
 
 type VehiclePageModel = {
-  vehicle: VehicleCatalogItem;
+  vehicle: NormalizedVehicleDetail;
   engineRange: string;
-  quickAdvisory: ReadonlyArray<string>;
-  narrative: VehicleNarrative;
+  quickFacts: string[];
   snapshotItems: SnapshotItem[];
   gradeCards: Array<
-    VehicleGrade & {
-      bestFor: string;
+    NormalizedVehicleGrade & {
+      calculatorHref: string;
     }
   >;
-  comparisonRows: Array<{
-    label: string;
-    values: string[];
-  }>;
+  comparisonGrades: NormalizedVehicleGrade[];
+  chassisGroupItems: TextCardItem[];
+  performanceItems: StatItem[];
   technologyItems: TextCardItem[];
+  marketUpdates: NormalizedVehicleDetail['marketUpdates'];
   importAdvantageItems: ReadonlyArray<TextCardItem>;
   mediaPlaceholders: {
     primary: MediaPlaceholder;
@@ -77,7 +70,6 @@ const brand = {
   borderSoft: '#E6EBF0',
   borderDashed: '#C8D3DD',
   surface: '#FBFCFD',
-  shadow: 'shadow-[0_12px_30px_rgba(1,54,103,0.06)]',
 } as const;
 
 const classes = {
@@ -96,29 +88,21 @@ const classes = {
   dashedPanel: `flex items-center justify-center rounded-2xl border border-dashed border-[${brand.borderDashed}] bg-[${brand.surface}]`,
 } as const;
 
-const editorialCopy = {
-  overviewIntro:
-    'A premium advisory summary designed to help buyers understand how the vehicle fits real Sri Lankan ownership needs before moving into grade and cost comparison.',
-  gradesIntro:
-    'Each grade is presented as a buying guide rather than a bare specification card, so you can quickly see how comfort, equipment, and ownership logic change across the lineup.',
-  comparisonIntro:
-    'A cleaner decision matrix for shortlisting the grade that best suits your budget, convenience priorities, and desired presentation.',
-  performanceIntro:
-    'This is not a performance-led presentation. The emphasis is on urban ease, manageable ownership expectations, and the kind of engine and transmission logic buyers actually care about when importing for local use.',
-  safetyIntro:
-    'We surface what is reasonable from the current data, while leaving room for verified auction-sheet and supplier details to replace placeholders as the catalog matures.',
-  galleryIntro:
-    'A future-ready space for exterior views, interior details, colour options, and auction-backed presentation assets.',
+const copy = {
+  overviewDescription: 'Overview data comes directly from the current vehicle record.',
+  gradesDescription: 'Each grade below reflects the current chassis-group, positioning, and feature data stored in the catalog.',
+  chassisGroupsDescription: 'These cards show the current chassis and powertrain groups available for this model in the catalog.',
+  performanceDescription: 'Performance and drivetrain facts are summarized directly from the current chassis-group and grade records.',
+  technologyDescription: 'Feature categories are aggregated directly from current grade feature records.',
+  marketUpdatesDescription:
+    'These updates come directly from the current Sri Lanka market update records linked to this vehicle.',
+  comparisonDescription: 'Use this matrix to compare the factual differences between each available grade and chassis-group combination.',
+  galleryDescription: 'Media slots remain ready for verified supplier or auction imagery when that data is available.',
   importAdvantageIntro:
-    'An OEM page can explain the product. This section explains the buying process around it, with transparency and local advisory value built into the journey.',
+    'This section explains the buying process around the vehicle, with transparency and local advisory value built into the journey.',
   finalCtaTitle: 'Build a clearer landed-cost picture before you commit',
   finalCtaBody:
     'Once you have shortlisted the right grade, the next decision is budget clarity. Move into the calculator to estimate landed cost, or speak with us directly if you want help matching this vehicle to your priorities.',
-  quickAdvisory: [
-    'Compare each grade with a clearer view of comfort, styling, and urban practicality.',
-    'Use the landed-cost calculator to turn shortlist decisions into budgeting clarity.',
-    'Keep the structure ready for future supplier, media, and finance data as the catalog grows.',
-  ],
   importAdvantages: [
     {
       title: 'Auction-Sourced Transparency',
@@ -136,61 +120,36 @@ const editorialCopy = {
       title: 'WhatsApp Consultation',
       body: 'Buyers can move from browsing to direct advisory support quickly, which is especially useful when comparing grades and shipment options.',
     },
-    {
-      title: 'Sri Lankan Market Focus',
-      body: 'The editorial tone is built around local use cases, ownership logic, and import practicality rather than generic overseas brochure language.',
-    },
-  ],
+  ] as const,
   mediaPlaceholders: {
     primary: {
       label: 'Primary Gallery Placeholder',
-      body: 'Exterior hero, interior preview, or verified supplier media can be inserted here later.',
+      body: 'Verified exterior or interior imagery has not been added to this catalog entry yet.',
       minHeightClass: 'min-h-[300px]',
     },
     secondary: [
       {
         label: 'Colour Options',
-        body: 'Reserved for verified paint names and finish swatches.',
+        body: 'Colour-specific media is not available for this entry yet.',
         minHeightClass: 'min-h-[137px]',
       },
       {
         label: 'Interior Media',
-        body: 'Reserved for dashboard, seat layout, and cargo-area visuals.',
+        body: 'Interior media is not available for this entry yet.',
         minHeightClass: 'min-h-[137px]',
       },
     ],
   },
 } as const;
 
-const comparisonRowDefinitions: ComparisonRowDefinition[] = [
-  {
-    label: 'Grade',
-    getValue: (grade) => grade.name,
-  },
-  {
-    label: 'Engine CC',
-    getValue: (grade) => `${grade.engineCC.toLocaleString()} cc`,
-  },
-  {
-    label: 'Key Features',
-    getValue: (grade) => summarizeKeyFeatures(grade),
-  },
-  {
-    label: 'Convenience',
-    getValue: (grade) => getConvenienceLevel(grade),
-  },
-  {
-    label: 'Styling',
-    getValue: (grade) => getStylingLevel(grade),
-  },
-  {
-    label: 'Best For',
-    getValue: (grade, vehicle) => stripBestForPrefix(getGradeBestFor(vehicle.name, grade)),
-  },
-];
+function formatEngineRange(vehicle: NormalizedVehicleDetail) {
+  const engineValues = Array.from(
+    new Set(vehicle.grades.map((grade) => grade.engineCC).filter((value): value is number => value !== null))
+  ).sort((left, right) => left - right);
 
-function formatEngineRange(vehicle: VehicleCatalogItem) {
-  const engineValues = Array.from(new Set(vehicle.grades.map((grade) => grade.engineCC))).sort((left, right) => left - right);
+  if (engineValues.length === 0) {
+    return 'Not specified';
+  }
 
   if (engineValues.length === 1) {
     return `${engineValues[0].toLocaleString()} cc`;
@@ -199,365 +158,238 @@ function formatEngineRange(vehicle: VehicleCatalogItem) {
   return `${engineValues[0].toLocaleString()}-${engineValues[engineValues.length - 1].toLocaleString()} cc`;
 }
 
-function hasFeature(grade: VehicleGrade, pattern: RegExp) {
-  return grade.features.some((feature) => pattern.test(feature));
+function dedupeFeatureValues(values: string[]) {
+  return Array.from(new Set(values.map((value) => value.trim()).filter(Boolean)));
 }
 
-function summarizeKeyFeatures(grade: VehicleGrade) {
-  if (grade.features.length === 0) {
-    return 'Not specified';
+function getFeatureHighlights(grade: NormalizedVehicleGrade) {
+  return grade.features.slice(0, 4);
+}
+
+function formatEngineValue(engineCC: number | null) {
+  return engineCC !== null ? `${engineCC.toLocaleString()} cc` : 'Not specified';
+}
+
+function formatYearRange(chassisGroup: NormalizedChassisGroup) {
+  if (chassisGroup.yearStart && chassisGroup.yearEnd) {
+    return `${chassisGroup.yearStart}-${chassisGroup.yearEnd}`;
   }
 
-  return grade.features.slice(0, 3).join(', ');
-}
-
-function getConvenienceLevel(grade: VehicleGrade) {
-  return hasFeature(grade, /Power Windows|Keyless Entry|Push Start|AGS/i) ? 'Enhanced' : 'Standard';
-}
-
-function getStylingLevel(grade: VehicleGrade) {
-  return hasFeature(grade, /LED|Custom Aero|Alloy|Leather/i) ? 'Enhanced' : 'Standard';
-}
-
-function getGradeBestFor(vehicleName: string, grade: VehicleGrade) {
-  if (hasFeature(grade, /Manual Windows|Basic Audio/i)) {
-    return `Best for buyers who want straightforward ${vehicleName.toLowerCase()} ownership with a value-first specification.`;
+  if (chassisGroup.yearStart) {
+    return `${chassisGroup.yearStart} onward`;
   }
 
-  if (hasFeature(grade, /AGS|Power Windows|Keyless Entry|Push Start/i)) {
-    return 'Best for daily urban use where convenience features matter as much as practicality.';
+  if (chassisGroup.yearEnd) {
+    return `Up to ${chassisGroup.yearEnd}`;
   }
 
-  if (hasFeature(grade, /LED|Alloy|Leather|Custom Aero/i)) {
-    return 'Best for buyers who want a more premium look and an upgraded day-to-day feel.';
+  return 'Not specified';
+}
+
+function buildTransmissionSummary(chassisGroups: NormalizedChassisGroup[]) {
+  const transmissions = Array.from(
+    new Set(chassisGroups.map((group) => group.transmission).filter((value): value is string => Boolean(value)))
+  );
+
+  return transmissions.length > 0 ? transmissions.join(', ') : 'Not specified';
+}
+
+function buildDrivetrainSummary(chassisGroups: NormalizedChassisGroup[]) {
+  const drivetrains = Array.from(
+    new Set(chassisGroups.map((group) => group.drivetrain).filter((value): value is string => Boolean(value)))
+  );
+
+  return drivetrains.length > 0 ? drivetrains.join(', ') : 'Not specified';
+}
+
+function buildFuelTypeSummary(vehicle: NormalizedVehicleDetail) {
+  const fuelTypes = Array.from(
+    new Set(
+      [
+        vehicle.fuelType,
+        ...vehicle.grades.map((grade) => grade.fuelType),
+        ...vehicle.chassisGroups.map((group) => group.fuelType),
+      ].filter((value): value is string => Boolean(value))
+    )
+  );
+
+  return fuelTypes.length > 0 ? fuelTypes.join(', ') : 'Not specified';
+}
+
+function buildCalculatorHref(vehicle: Pick<NormalizedVehicleDetail, 'fuelType' | 'bodyType'>, grade: Pick<NormalizedVehicleGrade, 'engineCC'>) {
+  const searchParams = new URLSearchParams();
+
+  if (grade.engineCC !== null) {
+    searchParams.set('engineCC', String(grade.engineCC));
   }
 
-  return 'Best for practical use with a balanced specification approach.';
-}
-
-function stripBestForPrefix(text: string) {
-  return text.replace(/^Best for /, '');
-}
-
-function getVehicleProfile(vehicle: VehicleCatalogItem) {
-  const maxEngine = Math.max(...vehicle.grades.map((grade) => grade.engineCC));
-
-  if (maxEngine <= 660) {
-    return 'kei';
+  if (vehicle.fuelType) {
+    searchParams.set('fuelType', vehicle.fuelType);
   }
 
-  if (/roomy/i.test(vehicle.name)) {
-    return 'family-box';
+  if (vehicle.bodyType) {
+    searchParams.set('vehicleType', vehicle.bodyType);
   }
 
-  return 'general';
+  const query = searchParams.toString();
+  return query ? `/calculator?${query}` : '/calculator';
 }
 
-function buildNarrative(vehicle: VehicleCatalogItem): VehicleNarrative {
-  const engineRange = formatEngineRange(vehicle);
-  const profile = getVehicleProfile(vehicle);
-  const hasConvenience = vehicle.grades.some((grade) => hasFeature(grade, /AGS|Power Windows|Keyless Entry|Push Start/i));
-
-  const narrativeByProfile: Record<string, VehicleNarrative> = {
-    kei: {
-      positioning:
-        'A compact utility-focused import built for dense city driving, commercial flexibility, and low running-cost ownership.',
-      overviewTitle: `Why Choose the ${vehicle.name}`,
-      overviewParagraphs: [
-        `${vehicle.name} is a sensible choice for buyers who want maximum practicality from a compact footprint. Its kei-class dimensions make parking, lane changes, and daily errands easier in congested urban areas while still preserving useful cabin versatility.`,
-        'For Sri Lankan buyers, this kind of package is especially appealing when the priority is predictable ownership cost, straightforward usability, and a body style that can work for family, trade, or mixed personal-business use.',
-        "The grade spread also matters. Some versions stay focused on simple value, while others add convenience features that make day-to-day driving feel more comfortable without moving away from the vehicle's practical core.",
-      ],
-      practicalityLead:
-        'The package is designed around real-world usefulness, with a boxy profile, easy entry, and a cabin layout that supports frequent loading, short urban trips, and mixed passenger needs.',
-      practicalityNarrative: [
-        'Buyers often need more than a spec sheet. They need to understand how a vehicle behaves during school runs, office commutes, loading groceries, carrying relatives, or simply navigating narrow urban roads without stress.',
-        'This section is intentionally structured for future expansion with verified luggage measurements, seat configurations, and real cabin imagery while still giving you a useful decision-making framework today.',
-      ],
-      practicalityItems: [
-        {
-          title: 'Cabin Utility',
-          body: 'An upright body and efficient footprint help create usable interior space for people, parcels, or everyday equipment.',
-        },
-        {
-          title: 'Seat Flexibility',
-          body: 'Selected grades indicate folding-seat practicality, making the vehicle easier to adapt between passenger and cargo use.',
-        },
-        {
-          title: 'Urban Ease',
-          body: 'Compact proportions support easier parking and low-stress maneuvering in tighter residential or commercial streets.',
-        },
-        {
-          title: 'Family Friendliness',
-          body: 'Simple ingress, manageable dimensions, and light-duty practicality make it suitable for routine daily use.',
-        },
-      ],
-      performanceItems: [
-        {
-          label: 'Engine Class',
-          value: `${engineRange} petrol`,
-          note: 'Sized for efficient daily running and predictable city use.',
-        },
-        {
-          label: 'Transmission Focus',
-          value: hasConvenience ? 'AGS available on selected grades' : 'Transmission details to be expanded',
-          note: 'Current grade data suggests an urban-friendly setup rather than performance tuning.',
-        },
-        {
-          label: 'Efficiency Positioning',
-          value: 'Cost-conscious daily ownership',
-          note: 'A practical fit for buyers prioritizing manageable fuel and maintenance expectations.',
-        },
-        {
-          label: 'Driving Character',
-          value: 'Easy to place in traffic',
-          note: 'The format suits routine commuting, errands, and lower-speed urban movement.',
-        },
-      ],
-      safetyItems: [
-        {
-          title: 'Visibility',
-          body: 'High seating and a practical body style generally support easier judgment in urban traffic and parking situations.',
-        },
-        {
-          title: 'Convenience Access',
-          body: 'Grade-dependent items such as keyless entry or power windows improve everyday usability where equipped.',
-        },
-        {
-          title: 'Basic Technology',
-          body: 'Current data confirms practical comfort features first, with scope to add full OEM specification detail later.',
-        },
-        {
-          title: 'Spec Transparency',
-          body: 'The page is structured to accommodate future verified safety and assistance data without overstating current information.',
-        },
-      ],
-    },
-    'family-box': {
-      positioning:
-        'A city-family compact with upright packaging, modern convenience potential, and easy everyday usability for Sri Lankan roads.',
-      overviewTitle: `Why Choose the ${vehicle.name}`,
-      overviewParagraphs: [
-        `${vehicle.name} stands out by offering a practical family-oriented cabin within a compact exterior that remains easy to manage in urban conditions. It is the sort of vehicle that makes sense for buyers who want passenger comfort without stepping into a much larger body size.`,
-        'For Sri Lankan use, that balance is valuable. The vehicle is easy enough for school runs, office commuting, and daily errands, while still presenting the convenience and styling upgrades many buyers expect from a modern Japanese import.',
-        'Its grades also give buyers a clearer choice between straightforward value and a more premium presentation, which is exactly the kind of comparison an import advisory page should help you make before budgeting landed cost.',
-      ],
-      practicalityLead:
-        'The focus here is efficient family packaging, with a layout that supports regular passenger use, everyday loading needs, and a more comfortable city-driving experience.',
-      practicalityNarrative: [
-        'A family-friendly import still needs to feel manageable in tight roads and routine traffic, not just spacious on paper. That balance is where this format is strongest.',
-        'The structure below is ready for future verified cargo figures, seat-layout details, and real interior visuals without forcing another redesign later.',
-      ],
-      practicalityItems: [
-        {
-          title: 'Passenger Comfort',
-          body: 'The upright silhouette suggests generous headroom and easy access for routine family travel and short urban trips.',
-        },
-        {
-          title: 'Luggage Practicality',
-          body: 'This body style is well suited to groceries, school bags, and day-to-day cargo without feeling oversized.',
-        },
-        {
-          title: 'Urban Usability',
-          body: 'Compact exterior dimensions help the vehicle remain approachable in tighter streets and parking environments.',
-        },
-        {
-          title: 'Everyday Flexibility',
-          body: 'The grade strategy blends convenience equipment and styling upgrades to suit different buyer priorities.',
-        },
-      ],
-      performanceItems: [
-        {
-          label: 'Engine Class',
-          value: `${engineRange} petrol`,
-          note: 'Appropriately sized for city-family driving and regular daily duties.',
-        },
-        {
-          label: 'Transmission Focus',
-          value: 'Urban-oriented automatic convenience expected',
-          note: 'Exact transmission detail can be inserted later once verified per grade.',
-        },
-        {
-          label: 'Efficiency Positioning',
-          value: 'Balanced daily efficiency',
-          note: 'A practical middle ground for comfort, drivability, and routine fuel use.',
-        },
-        {
-          label: 'Driving Character',
-          value: 'Light, easy, family-friendly',
-          note: 'The vehicle is positioned more around usability than aggressive performance.',
-        },
-      ],
-      safetyItems: [
-        {
-          title: 'Convenience Technology',
-          body: 'Current grade data points to useful ownership features such as push start and premium trim convenience items.',
-        },
-        {
-          title: 'Visibility Support',
-          body: 'A compact family format typically helps with parking confidence and day-to-day road judgment.',
-        },
-        {
-          title: 'Driver Assistance Readiness',
-          body: 'This layout is ready for future verified assistance-system and safety-package data from supplier records.',
-        },
-        {
-          title: 'Ownership Confidence',
-          body: 'The emphasis is on transparent specification guidance rather than overstated claims about unverified equipment.',
-        },
-      ],
-    },
-    general: {
-      positioning:
-        'A practical Japanese import built to balance everyday comfort, specification clarity, and dependable value.',
-      overviewTitle: `Why Choose the ${vehicle.name}`,
-      overviewParagraphs: [
-        `${vehicle.name} is positioned as a sensible all-rounder for buyers who want a practical Japanese import with a clear specification story and dependable day-to-day usability.`,
-        'That matters in the Sri Lankan market, where buyers often compare total landed cost against long-term convenience, cabin usefulness, and how confidently a vehicle fits into local urban driving routines.',
-        'The current grade spread suggests meaningful differences in comfort and presentation, making this page a useful advisory starting point before deeper import and finance decisions are made.',
-      ],
-      practicalityLead:
-        'The format prioritizes a balanced ownership experience, combining cabin usability, straightforward controls, and practical day-to-day flexibility.',
-      practicalityNarrative: [
-        'Practicality is more than dimensions on a catalog sheet. Buyers need to understand how the vehicle supports routine passenger use, carrying needs, and day-to-day local road conditions.',
-        'This section keeps that conversation structured now, while remaining ready for future hard data and verified media.',
-      ],
-      practicalityItems: [
-        {
-          title: 'Cabin Use',
-          body: 'Designed to support routine commuting, passenger needs, and normal everyday carrying duties.',
-        },
-        {
-          title: 'Comfort Fit',
-          body: 'The overall package is aimed at ease of use rather than complexity, which supports long-term ownership comfort.',
-        },
-        {
-          title: 'Local Practicality',
-          body: 'Its likely appeal comes from a blend of reasonable size, manageable running expectations, and accessible equipment levels.',
-        },
-        {
-          title: 'Flexible Buying Logic',
-          body: 'Different grades help buyers choose between simpler value and additional convenience or styling touches.',
-        },
-      ],
-      performanceItems: [
-        {
-          label: 'Engine Class',
-          value: `${engineRange} petrol`,
-          note: 'Structured for practical use rather than headline performance.',
-        },
-        {
-          label: 'Transmission Focus',
-          value: 'To be confirmed by grade',
-          note: 'Future supplier-linked data can make this section exact without changing the layout.',
-        },
-        {
-          label: 'Efficiency Positioning',
-          value: 'Ownership-conscious',
-          note: 'The page is built around realistic advisory value rather than unverified claims.',
-        },
-        {
-          label: 'Driving Character',
-          value: 'Daily-use oriented',
-          note: 'Suitable for mixed commuting, errands, and typical urban-road requirements.',
-        },
-      ],
-      safetyItems: [
-        {
-          title: 'Safety Support',
-          body: 'Verified grade-level safety equipment can be introduced later without restructuring the page system.',
-        },
-        {
-          title: 'Driver Convenience',
-          body: 'Current features suggest a focus on usability first, with additional grade differences shown clearly below.',
-        },
-        {
-          title: 'Visibility & Control',
-          body: 'The format is intended to surface practical ownership cues before exact OEM safety sheets are added.',
-        },
-        {
-          title: 'Technology Readiness',
-          body: 'This section is ready to absorb richer supplier or auction data as the catalog evolves.',
-        },
-      ],
-    },
-  };
-
-  return narrativeByProfile[profile];
+function buildQuickFacts(vehicle: NormalizedVehicleDetail, engineRange: string) {
+  return [
+    `Body type: ${vehicle.bodyType ?? 'Not specified'}`,
+    `Fuel type: ${buildFuelTypeSummary(vehicle)}`,
+    `Engine range: ${engineRange}`,
+    `Chassis groups: ${vehicle.chassisGroups.length}`,
+  ];
 }
 
-function buildTechnologyItems(vehicle: VehicleCatalogItem, fallbackSafetyItems: TextCardItem[]) {
-  const features = vehicle.grades.flatMap((grade) => grade.features);
-  const hasConvenience = features.some((feature) => /Keyless|Push Start|Power Windows|AGS/i.test(feature));
-  const hasPremiumTrim = features.some((feature) => /Leather|Alloy|LED|Custom Aero/i.test(feature));
-  const hasEntrySystem = features.some((feature) => /Keyless|Push Start/i.test(feature));
+function buildSnapshotItems(vehicle: NormalizedVehicleDetail, engineRange: string): SnapshotItem[] {
+  const primaryChassisGroup = vehicle.chassisGroups[0];
 
   return [
-    fallbackSafetyItems[0],
     {
-      title: 'Convenience Tech',
-      body: hasConvenience
-        ? 'Current grade data confirms practical comfort features that make daily ownership smoother.'
-        : 'Convenience specification is currently basic in the dataset and ready for richer detail later.',
+      label: 'Body Type',
+      value: vehicle.bodyType ?? 'Not specified',
     },
     {
-      title: 'Visibility',
-      body: 'A compact Japanese import format typically prioritizes everyday visibility and approachable road manners for city use.',
+      label: 'Fuel Type',
+      value: buildFuelTypeSummary(vehicle),
     },
     {
-      title: 'Driver Assistance',
-      body: 'Future supplier-linked data can populate assistance systems here once confirmed from auction sheets or catalog records.',
+      label: 'Engine Range',
+      value: engineRange,
     },
     {
-      title: 'Entry System',
-      body: hasEntrySystem
-        ? 'Selected grades already indicate easier entry and start-up convenience.'
-        : 'Entry-system detail is currently limited and can be expanded grade by grade.',
+      label: 'Grade Count',
+      value: String(vehicle.grades.length),
     },
     {
-      title: 'Infotainment Comfort',
-      body: hasPremiumTrim
-        ? 'Higher trims suggest a stronger comfort and presentation focus, even where full media specification is still pending.'
-        : 'This section is prepared for future audio, connectivity, and comfort-equipment detail.',
+      label: 'Market Focus',
+      value: primaryChassisGroup?.marketFocus ?? 'Not specified',
     },
   ];
 }
 
-function buildVehiclePageModel(vehicle: VehicleCatalogItem): VehiclePageModel {
-  const narrative = buildNarrative(vehicle);
+function buildChassisGroupItems(chassisGroups: NormalizedChassisGroup[]): TextCardItem[] {
+  return chassisGroups.map((group) => ({
+    title: group.displayName,
+    body: [
+      group.chassisCode ? `Chassis code: ${group.chassisCode}` : null,
+      group.fuelType ? `Fuel type: ${group.fuelType}` : null,
+      group.transmission ? `Transmission: ${group.transmission}` : null,
+      group.drivetrain ? `Drivetrain: ${group.drivetrain}` : null,
+      `Year range: ${formatYearRange(group)}`,
+      group.engineCCMin !== null || group.engineCCMax !== null
+        ? `Engine band: ${formatEngineValue(group.engineCCMin)} to ${formatEngineValue(group.engineCCMax)}`
+        : null,
+      group.notes ? `Notes: ${group.notes}` : null,
+    ]
+      .filter(Boolean)
+      .join(' · '),
+  }));
+}
+
+function buildPerformanceItems(vehicle: NormalizedVehicleDetail, engineRange: string): StatItem[] {
+  return [
+    {
+      label: 'Engine Range',
+      value: engineRange,
+      note: 'Derived from the current grade and chassis-group records.',
+    },
+    {
+      label: 'Fuel Type',
+      value: buildFuelTypeSummary(vehicle),
+      note: 'Pulled from the current vehicle and chassis-group data.',
+    },
+    {
+      label: 'Transmission',
+      value: buildTransmissionSummary(vehicle.chassisGroups),
+      note: 'Based on the transmissions recorded against each chassis group.',
+    },
+    {
+      label: 'Drivetrain',
+      value: buildDrivetrainSummary(vehicle.chassisGroups),
+      note: 'Based on the drivetrains recorded against each chassis group.',
+    },
+  ];
+}
+
+function buildTechnologyItems(grades: NormalizedVehicleGrade[]): TextCardItem[] {
+  const groupedFeatures = new Map<string, string[]>();
+
+  for (const grade of grades) {
+    for (const featureGroup of grade.featureGroups) {
+      const currentItems = groupedFeatures.get(featureGroup.category) ?? [];
+      groupedFeatures.set(featureGroup.category, [...currentItems, ...featureGroup.items]);
+    }
+  }
+
+  return Array.from(groupedFeatures.entries()).map(([category, items]) => ({
+    title: category,
+    body: dedupeFeatureValues(items).join(', '),
+  }));
+}
+
+function buildVehiclePageModel(vehicle: NormalizedVehicleDetail): VehiclePageModel {
   const engineRange = formatEngineRange(vehicle);
 
   return {
     vehicle,
     engineRange,
-    quickAdvisory: editorialCopy.quickAdvisory,
-    narrative,
-    snapshotItems: [
-      {
-        label: 'Body Purpose',
-        value: 'Practical daily use with a clear focus on Sri Lankan import suitability.',
-      },
-      {
-        label: 'Grade Spread',
-        value: `${vehicle.grades.length} options ranging from core practicality to added convenience or styling.`,
-      },
-      {
-        label: 'Import Advisory Fit',
-        value: 'Suitable for buyers comparing usability, cost confidence, and spec clarity before committing.',
-      },
-    ],
+    quickFacts: buildQuickFacts(vehicle, engineRange),
+    snapshotItems: buildSnapshotItems(vehicle, engineRange),
     gradeCards: vehicle.grades.map((grade) => ({
       ...grade,
-      bestFor: getGradeBestFor(vehicle.name, grade),
+      calculatorHref: buildCalculatorHref(vehicle, grade),
     })),
-    comparisonRows: comparisonRowDefinitions.map((row) => ({
-      label: row.label,
-      values: vehicle.grades.map((grade) => row.getValue(grade, vehicle)),
-    })),
-    technologyItems: buildTechnologyItems(vehicle, narrative.safetyItems),
-    importAdvantageItems: editorialCopy.importAdvantages,
-    mediaPlaceholders: editorialCopy.mediaPlaceholders,
+    comparisonGrades: vehicle.grades,
+    chassisGroupItems: buildChassisGroupItems(vehicle.chassisGroups),
+    performanceItems: buildPerformanceItems(vehicle, engineRange),
+    technologyItems: buildTechnologyItems(vehicle.grades),
+    marketUpdates: vehicle.marketUpdates,
+    importAdvantageItems: copy.importAdvantages,
+    mediaPlaceholders: copy.mediaPlaceholders,
   };
+}
+
+function formatMarketUpdateDate(value: string | null) {
+  if (!value) {
+    return null;
+  }
+
+  const date = new Date(value);
+
+  if (Number.isNaN(date.getTime())) {
+    return null;
+  }
+
+  return new Intl.DateTimeFormat('en-LK', {
+    year: 'numeric',
+    month: 'short',
+    day: 'numeric',
+  }).format(date);
+}
+
+function formatImpactLevel(value: string) {
+  return value
+    .split(/[_-\s]+/)
+    .filter(Boolean)
+    .map((part) => part.charAt(0).toUpperCase() + part.slice(1))
+    .join(' ');
+}
+
+function getImpactLevelClasses(impactLevel: string) {
+  switch (impactLevel.toLowerCase()) {
+    case 'high':
+    case 'critical':
+      return 'border-[#a60000]/15 bg-[#fff4f4] text-[#a60000]';
+    case 'medium':
+    case 'watch':
+      return 'border-[#013667]/15 bg-[#f4f8fc] text-[#013667]';
+    default:
+      return 'border-[#E4E9EE] bg-[#FBFCFD] text-[#344054]';
+  }
 }
 
 function VehicleBreadcrumb({ name }: { name: string }) {
@@ -617,7 +449,20 @@ function BasicCard({
   return <div className={`${classes.card} ${className}`}>{children}</div>;
 }
 
+function EmptyStateCard({ title, body }: { title: string; body: string }) {
+  return (
+    <BasicCard className="p-7 sm:p-8">
+      <h3 className="text-xl font-bold tracking-tight text-[#013667]">{title}</h3>
+      <p className="mt-4 text-sm leading-7 text-[#111827]">{body}</p>
+    </BasicCard>
+  );
+}
+
 function TextCardGrid({ items, columnsClass = 'md:grid-cols-2 xl:grid-cols-3' }: { items: ReadonlyArray<TextCardItem>; columnsClass?: string }) {
+  if (items.length === 0) {
+    return <EmptyStateCard title="No data yet" body="Additional catalog data has not been added for this section yet." />;
+  }
+
   return (
     <div className={`grid gap-6 ${columnsClass}`}>
       {items.map((item) => (
@@ -631,6 +476,10 @@ function TextCardGrid({ items, columnsClass = 'md:grid-cols-2 xl:grid-cols-3' }:
 }
 
 function StatGrid({ items }: { items: StatItem[] }) {
+  if (items.length === 0) {
+    return <EmptyStateCard title="No performance data yet" body="Performance and drivetrain data has not been added for this section yet." />;
+  }
+
   return (
     <div className="grid gap-6 md:grid-cols-2 xl:grid-cols-4">
       {items.map((item) => (
@@ -660,6 +509,30 @@ function SnapshotCard({ items }: { items: SnapshotItem[] }) {
   );
 }
 
+function GradeFeatureGroups({ featureGroups }: { featureGroups: CatalogFeatureGroup[] }) {
+  if (featureGroups.length === 0) {
+    return <p className="mt-7 text-sm leading-7 text-[#344054]">No feature data available yet.</p>;
+  }
+
+  return (
+    <div className="mt-7 space-y-6">
+      {featureGroups.map((group) => (
+        <div key={group.category}>
+          <p className="text-xs font-bold uppercase tracking-[0.16em] text-[#344054]">{group.category}</p>
+          <ul className="mt-3 space-y-3 text-sm leading-7 text-[#111827]">
+            {group.items.map((item) => (
+              <li key={item} className="flex items-start gap-3">
+                <span className="mt-2 h-1.5 w-1.5 shrink-0 rounded-full bg-[#013667]" aria-hidden="true" />
+                <span>{item}</span>
+              </li>
+            ))}
+          </ul>
+        </div>
+      ))}
+    </div>
+  );
+}
+
 function GradeCard({ grade }: { grade: VehiclePageModel['gradeCards'][number] }) {
   return (
     <article className={`${classes.card} flex h-full flex-col p-7 sm:p-8`}>
@@ -669,37 +542,76 @@ function GradeCard({ grade }: { grade: VehiclePageModel['gradeCards'][number] })
           <h3 className="mt-4 text-[1.75rem] font-black tracking-[-0.03em] text-[#013667]">{grade.name}</h3>
         </div>
         <div className="rounded-full border border-[#013667]/14 px-4 py-1.5 text-sm font-bold text-[#013667]">
-          {grade.engineCC.toLocaleString()} cc
+          {formatEngineValue(grade.engineCC)}
         </div>
       </div>
 
-      <ul className="mt-7 space-y-3.5 text-sm leading-7 text-[#111827]">
-        {grade.features.map((feature) => (
-          <li key={feature} className="flex items-start gap-3">
-            <span className="mt-2 h-1.5 w-1.5 shrink-0 rounded-full bg-[#013667]" aria-hidden="true" />
-            <span>{feature}</span>
-          </li>
-        ))}
-      </ul>
+      <div className="mt-5 flex flex-wrap gap-2 text-xs font-bold uppercase tracking-[0.14em] text-[#344054]">
+        <span className="rounded-full border border-[#E4E9EE] px-3 py-1.5">{grade.chassisGroupName}</span>
+        {grade.drivetrain ? <span className="rounded-full border border-[#E4E9EE] px-3 py-1.5">{grade.drivetrain}</span> : null}
+        {grade.transmission ? <span className="rounded-full border border-[#E4E9EE] px-3 py-1.5">{grade.transmission}</span> : null}
+      </div>
 
-      <p className="mt-7 border-t border-[#E4E9EE] pt-6 text-sm leading-7 text-[#111827]">
-        <span className="font-bold text-[#013667]">Best for:</span> {grade.bestFor}
-      </p>
+      {grade.positioningSummary ? (
+        <p className="mt-6 text-sm leading-7 text-[#111827]">{grade.positioningSummary}</p>
+      ) : (
+        <p className="mt-6 text-sm leading-7 text-[#344054]">Positioning summary not added yet.</p>
+      )}
 
-      <Link href="/calculator" className={`${classes.primaryButton} mt-9 w-full`}>
+      <GradeFeatureGroups featureGroups={grade.featureGroups} />
+
+      <div className="mt-7 border-t border-[#E4E9EE] pt-6 text-sm leading-7 text-[#111827]">
+        <span className="font-bold text-[#013667]">Best for:</span>{' '}
+        {grade.bestFor ?? 'Grade-specific buyer guidance has not been added yet.'}
+      </div>
+
+      <Link href={grade.calculatorHref} className={`${classes.primaryButton} mt-9 w-full`}>
         Calculate Landed Cost
       </Link>
     </article>
   );
 }
 
-function ComparisonTable({
-  gradeNames,
-  rows,
-}: {
-  gradeNames: string[];
-  rows: VehiclePageModel['comparisonRows'];
-}) {
+function ComparisonTable({ grades }: { grades: VehiclePageModel['comparisonGrades'] }) {
+  if (grades.length === 0) {
+    return <EmptyStateCard title="No grades yet" body="Comparison data will appear here once grade records are added to the catalog." />;
+  }
+
+  const rows = [
+    {
+      label: 'Chassis Group',
+      values: grades.map((grade) => grade.chassisGroupName),
+    },
+    {
+      label: 'Chassis Code',
+      values: grades.map((grade) => grade.chassisCode ?? 'Not specified'),
+    },
+    {
+      label: 'Fuel Type',
+      values: grades.map((grade) => grade.fuelType ?? 'Not specified'),
+    },
+    {
+      label: 'Drivetrain',
+      values: grades.map((grade) => grade.drivetrain ?? 'Not specified'),
+    },
+    {
+      label: 'Transmission',
+      values: grades.map((grade) => grade.transmission ?? 'Not specified'),
+    },
+    {
+      label: 'Engine CC',
+      values: grades.map((grade) => formatEngineValue(grade.engineCC)),
+    },
+    {
+      label: 'Positioning',
+      values: grades.map((grade) => grade.positioningSummary ?? 'Not specified'),
+    },
+    {
+      label: 'Best For',
+      values: grades.map((grade) => grade.bestFor ?? 'Not specified'),
+    },
+  ];
+
   return (
     <BasicCard className="overflow-hidden">
       <div className="overflow-x-auto">
@@ -709,9 +621,33 @@ function ComparisonTable({
               <th className="sticky left-0 bg-[#FFFFFF] px-6 py-5 font-bold uppercase tracking-[0.12em] text-[#344054]">
                 Specification
               </th>
-              {gradeNames.map((name) => (
-                <th key={name} className="min-w-55 px-6 py-5 font-bold uppercase tracking-[0.12em] text-[#013667]">
-                  {name}
+              {grades.map((grade) => (
+                <th key={grade.id} className="min-w-64 px-6 py-5 align-top text-[#013667]">
+                  <div className="text-sm font-black uppercase tracking-[0.12em]">{grade.name}</div>
+                  <div className="mt-2 text-xs font-semibold uppercase tracking-[0.12em] text-[#344054]">
+                    {grade.chassisGroupName}
+                  </div>
+                </th>
+              ))}
+            </tr>
+            <tr className="border-b border-[#E4E9EE] bg-[#FBFCFD]">
+              <th className="sticky left-0 bg-[#FBFCFD] px-6 py-4 font-bold uppercase tracking-[0.12em] text-[#344054]">
+                Feature Highlights
+              </th>
+              {grades.map((grade) => (
+                <th key={`${grade.id}-features`} className="px-6 py-4">
+                  {getFeatureHighlights(grade).length > 0 ? (
+                    <ul className="space-y-2 text-left text-sm leading-6 text-[#111827]">
+                      {getFeatureHighlights(grade).map((feature) => (
+                        <li key={feature} className="flex items-start gap-2">
+                          <span className="mt-2 h-1.5 w-1.5 shrink-0 rounded-full bg-[#013667]" aria-hidden="true" />
+                          <span>{feature}</span>
+                        </li>
+                      ))}
+                    </ul>
+                  ) : (
+                    <span className="text-sm font-medium text-[#344054]">No feature data</span>
+                  )}
                 </th>
               ))}
             </tr>
@@ -721,7 +657,7 @@ function ComparisonTable({
               <tr key={row.label} className="border-b border-[#EAEFF3] align-top last:border-b-0">
                 <th className="sticky left-0 bg-[#FFFFFF] px-6 py-5 font-bold text-[#111827]">{row.label}</th>
                 {row.values.map((value, index) => (
-                  <td key={`${row.label}-${gradeNames[index]}`} className="px-6 py-5 leading-7 text-[#111827]">
+                  <td key={`${row.label}-${grades[index]?.id ?? index}`} className="px-6 py-5 leading-7 text-[#111827]">
                     {value}
                   </td>
                 ))}
@@ -734,26 +670,60 @@ function ComparisonTable({
   );
 }
 
-function PracticalitySection({ narrative }: { narrative: VehicleNarrative }) {
+function MarketUpdatesSection({ updates }: { updates: VehiclePageModel['marketUpdates'] }) {
+  if (updates.length === 0) {
+    return null;
+  }
+
+  return (
+    <SectionShell
+      label="Sri Lanka Market Updates"
+      title="Current market context for this vehicle"
+      description={copy.marketUpdatesDescription}
+    >
+      <div className="grid gap-6 lg:grid-cols-2">
+        {updates.map((update) => {
+          const effectiveDate = formatMarketUpdateDate(update.effectiveDate);
+
+          return (
+            <article key={update.id} className={`${classes.card} p-6 sm:p-7`}>
+              <div className="flex flex-wrap items-center gap-3">
+                <span
+                  className={`inline-flex items-center rounded-full border px-3 py-1.5 text-xs font-bold uppercase tracking-[0.14em] ${getImpactLevelClasses(
+                    update.impactLevel
+                  )}`}
+                >
+                  {formatImpactLevel(update.impactLevel)}
+                </span>
+                {effectiveDate ? (
+                  <span className="text-xs font-semibold uppercase tracking-[0.14em] text-[#344054]">
+                    Effective {effectiveDate}
+                  </span>
+                ) : null}
+              </div>
+
+              <h3 className="mt-5 text-xl font-bold tracking-tight text-[#013667]">{update.title}</h3>
+              <p className="mt-4 text-sm leading-7 text-[#111827]">{update.summary}</p>
+            </article>
+          );
+        })}
+      </div>
+    </SectionShell>
+  );
+}
+
+function ChassisGroupSection({ items }: { items: TextCardItem[] }) {
   return (
     <div className="grid gap-10 lg:grid-cols-[1fr_1.1fr] lg:items-start">
       <div>
         <div className="max-w-3xl">
-          <p className={classes.label}>Interior & Practicality</p>
-          <h2 className={classes.title}>Built around everyday space and usability</h2>
-          <p className={classes.body}>{narrative.practicalityLead}</p>
+          <p className={classes.label}>Chassis & Powertrain Groups</p>
+          <h2 className={classes.title}>Structured for the actual import variants in the catalog</h2>
+          <p className={classes.body}>Each card below reflects the factual chassis-group records currently linked to this vehicle.</p>
         </div>
-
-        <BasicCard className="mt-10 p-7 sm:p-8">
-          <div className="space-y-5 text-[15px] leading-8 text-[#111827]">
-            {narrative.practicalityNarrative.map((paragraph) => (
-              <p key={paragraph}>{paragraph}</p>
-            ))}
-          </div>
-        </BasicCard>
       </div>
 
-      <TextCardGrid items={narrative.practicalityItems} columnsClass="sm:grid-cols-2" />
+      <TextCardGrid items={items} columnsClass="sm:grid-cols-2" />
     </div>
   );
 }
@@ -777,9 +747,9 @@ function FinalCta() {
       <BasicCard className="p-8 sm:p-10">
         <p className={classes.label}>Next Step</p>
         <h2 className="mt-4 max-w-3xl text-3xl font-black tracking-[-0.03em] text-[#013667] sm:text-4xl lg:text-[2.65rem] lg:leading-[1.08]">
-          {editorialCopy.finalCtaTitle}
+          {copy.finalCtaTitle}
         </h2>
-        <p className="mt-5 max-w-3xl text-[15px] leading-8 text-[#111827]">{editorialCopy.finalCtaBody}</p>
+        <p className="mt-5 max-w-3xl text-[15px] leading-8 text-[#111827]">{copy.finalCtaBody}</p>
 
         <div className="mt-9 flex flex-col gap-3 sm:flex-row">
           <Link href="/calculator" className={classes.primaryButton}>
@@ -801,7 +771,7 @@ function FinalCta() {
 
 export default async function VehicleDetailPage({ params }: VehiclePageProps) {
   const { slug } = await params;
-  const vehicle = vehicles.find((item) => item.slug === slug);
+  const vehicle = await getCatalogVehicleDetail(slug);
 
   if (!vehicle) {
     notFound();
@@ -821,7 +791,9 @@ export default async function VehicleDetailPage({ params }: VehiclePageProps) {
               <h1 className="mt-5 max-w-4xl text-4xl font-black tracking-[-0.04em] text-[#013667] sm:text-5xl lg:text-[4.5rem] lg:leading-[0.98]">
                 {pageModel.vehicle.name}
               </h1>
-              <p className="mt-6 max-w-3xl text-lg leading-8 text-[#111827]">{pageModel.narrative.positioning}</p>
+              {pageModel.vehicle.bestFor ? (
+                <p className="mt-6 max-w-3xl text-lg leading-8 text-[#111827]">{pageModel.vehicle.bestFor}</p>
+              ) : null}
 
               <div className="mt-8 flex flex-wrap items-center gap-3">
                 <div className={classes.pillBlue}>Chassis: {pageModel.vehicle.chassis}</div>
@@ -831,9 +803,9 @@ export default async function VehicleDetailPage({ params }: VehiclePageProps) {
             </div>
 
             <BasicCard className="p-7 sm:p-8">
-              <p className={classes.label}>Quick Advisory</p>
+              <p className={classes.label}>Quick Facts</p>
               <ul className="mt-6 space-y-4 text-sm leading-7 text-[#111827]">
-                {pageModel.quickAdvisory.map((item) => (
+                {pageModel.quickFacts.map((item) => (
                   <li key={item} className="flex items-start gap-3">
                     <span className="mt-2 h-1.5 w-1.5 shrink-0 rounded-full bg-[#013667]" aria-hidden="true" />
                     <span>{item}</span>
@@ -859,19 +831,21 @@ export default async function VehicleDetailPage({ params }: VehiclePageProps) {
         </section>
 
         <SectionShell
-          label="Editorial Overview"
-          title={pageModel.narrative.overviewTitle}
-          description={editorialCopy.overviewIntro}
+          label="Vehicle Overview"
+          title={pageModel.vehicle.name}
+          description={copy.overviewDescription}
           className={classes.firstSection}
         >
           <div className="grid gap-10 lg:grid-cols-[1.2fr_0.8fr]">
-            <BasicCard className="p-7 sm:p-8">
-              <div className="space-y-5 text-[15px] leading-8 text-[#111827]">
-                {pageModel.narrative.overviewParagraphs.map((paragraph) => (
-                  <p key={paragraph}>{paragraph}</p>
-                ))}
-              </div>
-            </BasicCard>
+            {pageModel.vehicle.overview ? (
+              <BasicCard className="p-7 sm:p-8">
+                <div className="space-y-5 text-[15px] leading-8 text-[#111827]">
+                  <p>{pageModel.vehicle.overview}</p>
+                </div>
+              </BasicCard>
+            ) : (
+              <EmptyStateCard title="Overview not available yet" body="This vehicle record does not currently include an overview field." />
+            )}
 
             <SnapshotCard items={pageModel.snapshotItems} />
           </div>
@@ -880,50 +854,53 @@ export default async function VehicleDetailPage({ params }: VehiclePageProps) {
         <SectionShell
           label="Grades Overview"
           title={`Choose the right ${pageModel.vehicle.name} grade`}
-          description={editorialCopy.gradesIntro}
+          description={copy.gradesDescription}
         >
-          <div className="grid gap-6 lg:grid-cols-2">
-            {pageModel.gradeCards.map((grade) => (
-              <GradeCard key={grade.name} grade={grade} />
-            ))}
-          </div>
-        </SectionShell>
-
-        <SectionShell
-          label="Grade Comparison"
-          title="Compare the lineup side by side"
-          description={editorialCopy.comparisonIntro}
-        >
-          <ComparisonTable
-            gradeNames={pageModel.vehicle.grades.map((grade) => grade.name)}
-            rows={pageModel.comparisonRows}
-          />
+          {pageModel.gradeCards.length > 0 ? (
+            <div className="grid gap-6 lg:grid-cols-2">
+              {pageModel.gradeCards.map((grade) => (
+                <GradeCard key={grade.id} grade={grade} />
+              ))}
+            </div>
+          ) : (
+            <EmptyStateCard title="No grades added yet" body="This vehicle record does not currently have any grade entries." />
+          )}
         </SectionShell>
 
         <section className={classes.section}>
-          <PracticalitySection narrative={pageModel.narrative} />
+          <ChassisGroupSection items={pageModel.chassisGroupItems} />
         </section>
 
         <SectionShell
           label="Performance & Efficiency"
-          title="Structured around real-world drivability"
-          description={editorialCopy.performanceIntro}
+          title="Structured around current mechanical data"
+          description={copy.performanceDescription}
         >
-          <StatGrid items={pageModel.narrative.performanceItems} />
+          <StatGrid items={pageModel.performanceItems} />
         </SectionShell>
 
         <SectionShell
           label="Safety & Technology"
-          title="Future-ready specification space with honest guidance"
-          description={editorialCopy.safetyIntro}
+          title="Feature categories from current grade data"
+          description={copy.technologyDescription}
         >
           <TextCardGrid items={pageModel.technologyItems} />
+        </SectionShell>
+
+        <MarketUpdatesSection updates={pageModel.marketUpdates} />
+
+        <SectionShell
+          label="Grade Comparison"
+          title="Compare the lineup side by side"
+          description={copy.comparisonDescription}
+        >
+          <ComparisonTable grades={pageModel.comparisonGrades} />
         </SectionShell>
 
         <SectionShell
           label="Gallery & Presentation"
           title="Prepared for colours, media, and verified visuals"
-          description={editorialCopy.galleryIntro}
+          description={copy.galleryDescription}
         >
           <div className="grid gap-6 lg:grid-cols-[1.2fr_0.8fr]">
             <MediaPlaceholderPanel item={pageModel.mediaPlaceholders.primary} />
@@ -939,7 +916,7 @@ export default async function VehicleDetailPage({ params }: VehiclePageProps) {
         <SectionShell
           label="NextGen Import Advantage"
           title="Why import this vehicle through NextGen Traders"
-          description={editorialCopy.importAdvantageIntro}
+          description={copy.importAdvantageIntro}
         >
           <TextCardGrid items={pageModel.importAdvantageItems} columnsClass="sm:grid-cols-2" />
         </SectionShell>
